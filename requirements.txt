@@ -1,0 +1,23 @@
+# Core
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+requests>=2.25.0
+numpy>=1.26
+
+# LangChain / LangGraph
+langchain-core>=0.3.0
+langgraph>=0.2.0
+langchain-google-genai>=2.0.0
+langchain-mistralai>=0.2.0
+langchain-openai>=0.2.0
+
+# RAG: эмбеддинги multilingual-e5 + векторный индекс FAISS
+sentence-transformers>=3.0.0
+faiss-cpu>=1.8.0
+
+# NLP
+pymorphy3>=2.0.0
+razdel>=0.5.0
+
+# Web UI
+streamlit>=1.30.0

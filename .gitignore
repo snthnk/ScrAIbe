@@ -1,0 +1,81 @@
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+
+# Python virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Unit test / coverage reports (the tests themselves ARE tracked)
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+
+# Logs & temp files
+logs/
+*.log
+*.tmp
+*.bak
+scratch/
+
+# Caches and ML artifacts
+.cache/
+.ruff_cache/
+.mypy_cache/
+.streamlit/
+*.pt
+*.bin
+*.onnx
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Operating System files
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+
+# IDE and Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# RAG index cache (rebuilt automatically from data/arguments.csv)
+data/rag_index/
+
+results/

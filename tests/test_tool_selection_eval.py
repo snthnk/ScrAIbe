@@ -1,5 +1,7 @@
+from langchain_core.messages import AIMessage
+
 from agent_module.constants import ALL_TOOL_NAMES
-from agent_module.routing.evaluate import NO_TOOL, load_scenarios, make_llm_predictor, predict_rules, run, summarize
+from agent_module.routing.evaluate import NO_TOOL, Scenario, load_scenarios, make_llm_predictor, predict_rules, run, summarize
 from tests.fakes import FakeLLM, tool_call_message
 
 
@@ -27,13 +29,14 @@ def test_summarize_counts_false_calls():
         {"id": "2", "expected": "none", "predicted": "literature_rag", "correct": False, "latency_ms": 7, "error": None},
         {"id": "3", "expected": "literature_rag", "predicted": "literature_rag", "correct": True, "latency_ms": 9, "error": None},
         {"id": "4", "expected": "nlp_errors_tool", "predicted": "error", "correct": False, "latency_ms": 0, "error": "boom"},
+        {"id": "5", "expected": "none", "predicted": "error", "correct": False, "latency_ms": 0, "error": "TimeoutError"},
     ]
     s = summarize(rows)
-    assert s["tool_selection_accuracy"] == 0.5
-    assert s["accuracy_when_no_tool_needed"] == 0.5
+    assert s["tool_selection_accuracy"] == 0.4
+    assert s["accuracy_when_no_tool_needed"] == 0.3333
     assert s["accuracy_when_tool_needed"] == 0.5
     assert s["false_tool_calls"] == 1
-    assert s["errors"] == 1
+    assert s["errors"] == 2
 
 
 def test_llm_predictor_maps_answers_and_errors():
@@ -43,6 +46,15 @@ def test_llm_predictor_maps_answers_and_errors():
     err = make_llm_predictor(FakeLLM([RuntimeError("quota")]))
     result = err(scenarios[0])
     assert result["predicted"] == "error" and "quota" in result["error"]
+
+
+def test_truncated_reply_is_not_a_correct_no_tool_decision():
+    scenario = Scenario("x", "Подобрать аргумент", "Спасибо!", False, NO_TOOL)
+    reply = AIMessage(content="Начну с", response_metadata={"finish_reason": "length"})
+    summary = summarize(run([scenario], make_llm_predictor(FakeLLM([reply]))))
+    assert summary["tool_selection_accuracy"] == 0
+    assert summary["false_tool_calls"] == 0
+    assert summary["errors"] == 1
 
 
 def test_run_reports_progress_for_every_scenario():

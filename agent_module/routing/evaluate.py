@@ -2,8 +2,9 @@
 
 Метрики:
     Tool Selection Accuracy   — доля сценариев, где выбранный инструмент совпал с ожидаемым (``none`` — не звать инструмент);
-    Accuracy на «не нужен инструмент» — доля сценариев с ``none``, где агент справедливо промолчал (ложные вызовы — это минус);
+    Accuracy на «не нужен инструмент» — доля сценариев с ``none``, где агент не запросил инструмент и завершил выбор без ошибки;
     Accuracy на «нужен инструмент»   — доля сценариев с ожидаемым инструментом, где выбран именно он;
+    Ложные вызовы — решения вызвать инструмент при ожидаемом ``none``. Ошибка прогона снижает точность и считается отдельно;
     p50/p95 латентности решения.
 """
 
@@ -107,6 +108,9 @@ def make_llm_predictor(llm: Any, prompt: str = "full", mask_step: bool = False) 
         except Exception as exc:
             logging.getLogger("ege_ai_agent.eval").error("сценарий %s: %s", scenario.id, exc, exc_info=True)
             return {"predicted": "error", "latency_ms": 0.0, "error": f"{type(exc).__name__}: {str(exc)[:400]}"}
+        finish_reason = (getattr(decision.llm_message, "response_metadata", None) or {}).get("finish_reason")
+        if decision.tool is None and str(finish_reason).lower() in {"length", "max_tokens"}:
+            return {"predicted": "error", "latency_ms": decision.latency_ms, "error": "GenerationLimit: ответ оборвался без вызова инструмента"}
         return {"predicted": decision.tool or NO_TOOL, "latency_ms": decision.latency_ms, "error": None}
 
     return predict
@@ -156,7 +160,7 @@ def summarize(rows: Sequence[dict]) -> Dict[str, Any]:
         "tool_selection_accuracy": _ratio(sum(r["correct"] for r in rows), total),
         "accuracy_when_tool_needed": _ratio(sum(r["correct"] for r in needs_tool), len(needs_tool)),
         "accuracy_when_no_tool_needed": _ratio(sum(r["correct"] for r in needs_none), len(needs_none)),
-        "false_tool_calls": sum(1 for r in needs_none if r["predicted"] != NO_TOOL),
+        "false_tool_calls": sum(1 for r in needs_none if not r["error"] and r["predicted"] != NO_TOOL),
         "errors": sum(1 for r in rows if r["error"]),
         "latency_ms_p50": round(statistics.median(latencies), 1) if latencies else None,
         "latency_ms_p95": round(latencies[min(int(len(latencies) * 0.95), len(latencies) - 1)], 1) if latencies else None,

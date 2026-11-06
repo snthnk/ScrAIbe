@@ -96,11 +96,11 @@ def main() -> None:
                 ok = sum(r["correct"] for r in rows)
                 elapsed = time.perf_counter() - started
                 eta = elapsed / done * (total - done)
-                print(f"          --- {done}/{total}: верно {ok}, ошибок API {sum(1 for r in rows if r['error'])}, прошло {elapsed:.0f} с, осталось ~{eta:.0f} с", flush=True)
+                print(f"          --- {done}/{total}: верно {ok}, ошибок прогона {sum(1 for r in rows if r['error'])}, прошло {elapsed:.0f} с, осталось ~{eta:.0f} с", flush=True)
             if streak["errors"] >= MAX_CONSECUTIVE_ERRORS:
                 save(stem, label, rows)
                 raise SystemExit(
-                    f"\nПрерываю: {MAX_CONSECUTIVE_ERRORS} ошибок API подряд (последняя: {row['error']}).\n"
+                    f"\nПрерываю: {MAX_CONSECUTIVE_ERRORS} ошибок прогона подряд (последняя: {row['error']}).\n"
                     f"Проверьте ключ, название модели и квоту. Полный трейсбек: {LOG_PATH}"
                 )
 
@@ -125,7 +125,7 @@ def main() -> None:
             rows = run(scenarios, predict_rules)
         else:
             if not args.allow_fallbacks:
-                os.environ.setdefault("LLM_FALLBACKS", "0")  # измеряем одну модель, а не цепочку запасных
+                os.environ["LLM_FALLBACKS"] = "0"
             from agent_module.llms import build_main_llm, provider, resolve_model_name
 
             llm = build_main_llm(model)
@@ -144,14 +144,14 @@ def main() -> None:
         save(stem, label, rows)
         kinds = Counter((r["error"] or "").split(":")[0] for r in rows if r["error"])
         if kinds:
-            print(f"\nОшибки API по типам ({label}): " + ", ".join(f"{k} ×{v}" for k, v in kinds.most_common()))
+            print(f"\nОшибки прогона по типам ({label}): " + ", ".join(f"{k} ×{v}" for k, v in kinds.most_common()))
         if args.show_errors:
             print(f"\nОшибки ({label}):")
             for r in rows:
                 if not r["correct"]:
                     print(f"  {r['id']}: «{r['user_text'][:70]}» ожидали {r['expected']}, получили {r['predicted']}" + (f" [{r['error']}]" if r["error"] else ""))
 
-    header = "| Метод | Tool Selection Accuracy | Когда нужен инструмент | Когда не нужен | Ложные вызовы | Ошибки API | p50, мс |"
+    header = "| Метод | Tool Selection Accuracy | Когда нужен инструмент | Когда не нужен | Ложные вызовы | Ошибки прогона | p50, мс |"
     lines = [header, "|---|---|---|---|---|---|---|"]
     for label, s in summaries.items():
         lines.append(

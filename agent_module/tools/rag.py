@@ -23,7 +23,7 @@ def literature_rag(query: str, tags: Optional[List[str]] = None) -> Dict[str, An
     logger.info("Tool: literature_rag (query='%s', tags=%s)", query, tags)
     try:
         outcome = get_retriever().search(query, k=TOP_K, mode=MODE_HYBRID, tags=tags)
-    except Exception as exc:  # нет модели эмбеддингов, сломан индекс и т.п.
+    except Exception as exc:
         logger.warning("Tool: literature_rag unavailable: %s", exc)
         result = RagResult(status="unavailable", query=query, message=f"База аргументов недоступна: {exc}")
         return result.model_dump()

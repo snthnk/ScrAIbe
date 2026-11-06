@@ -1,8 +1,4 @@
-"""``web_fact_checker``: fact verification through the Tavily search API.
-
-The tool only fetches evidence (title / link / snippet). Interpreting the evidence is left to the
-agent — there are no canned answers for particular works or authors here.
-"""
+"""Fetch titles, links and excerpts from Tavily for literary fact queries."""
 
 import json
 import os

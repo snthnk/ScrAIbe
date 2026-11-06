@@ -1,8 +1,8 @@
-"""Точность выбора инструмента на 100 сценариях: правила против LLM.
+"""Оценка выбора инструмента на сценариях из CSV.
 
-    python scripts/eval_tool_selection.py --methods rules          # без ключей, мгновенно
-    python scripts/eval_tool_selection.py --methods rules,llm      # нужен LLM_PROVIDER, ключ и модель в .env (или --model)
-    python scripts/eval_tool_selection.py --methods llm --delay 2  # пауза между запросами против лимитов API
+    python scripts/eval_tool_selection.py --methods rules
+    python scripts/eval_tool_selection.py --methods llm --prompt minimal
+    python scripts/eval_tool_selection.py --methods llm --scenarios data/tool_selection_holdout.csv
 
 Метрики и их смысл — в agent_module/routing/evaluate.py. Результаты: results/tool_selection_<метод>.json/.md,
 подробный разбор по сценариям — в поле ``rows`` JSON.
@@ -21,8 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-# Тихая консоль: по умолчанию только предупреждения и ошибки; подробности — в results/eval_tool_selection.log.
-# Значения из окружения и аргументов командной строки имеют приоритет над этими.
+# Подробности прогона записываются в eval_tool_selection.log.
 os.environ.setdefault("LOG_LEVEL", "WARNING")
 os.environ.setdefault("LOG_TO_FILE", "0")
 warnings.filterwarnings("ignore", message=".*fixed sampling defaults.*")

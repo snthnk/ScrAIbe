@@ -1,4 +1,4 @@
-"""ToolDecision: the outcome of one tool-selection step, including *who* made the decision."""
+"""Tool selection result and its log fields."""
 
 import json
 from dataclasses import asdict, dataclass, field
@@ -15,7 +15,7 @@ class ToolDecision:
     ``decided_by``:
       * ``"llm"``   — the model picked the tool (or chose to answer without one);
       * ``"rules"`` — the keyword rules decided: either rules mode is configured, or the LLM failed.
-    ``fallback_reason`` is set only when the rules took over because the LLM failed / answered nonsense.
+    ``fallback_reason`` records the selection error when rules provide a fallback.
     """
 
     tool: Optional[str]

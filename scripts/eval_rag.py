@@ -1,11 +1,10 @@
 """Оценка RAG: Hit Rate@1 / @3 для чистого векторного поиска и для гибридного (вектор + фильтр по тегам).
 
-    python scripts/eval_rag.py                       # боевой режим: multilingual-e5-large
-    python scripts/eval_rag.py --embedder hash       # офлайн-проверка конвейера (без скачивания модели)
+    python scripts/eval_rag.py                      # multilingual-e5-large
+    python scripts/eval_rag.py --embedder hash      # тестовый эмбеддер на n-граммах
     python scripts/eval_rag.py --model intfloat/multilingual-e5-small
 
 Результат печатается в консоль и сохраняется в results/rag_eval_<эмбеддер>.json и .md.
-Эмбеддер ``hash`` нужен только чтобы проверить код без модели — его числа не отражают качество поиска.
 """
 
 import argparse

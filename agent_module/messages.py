@@ -1,7 +1,4 @@
-"""Message and tool-call helpers shared by the graph nodes and the workflow routers.
-
-These used to be copy-pasted in both ``nodes.py`` and ``workflow.py``.
-"""
+"""Convert conversation messages and read tool calls from provider responses."""
 
 import ast
 import json
@@ -138,7 +135,7 @@ def parse_raw_tool_calls(raw: Any) -> List[Dict[str, Any]]:
 
 
 def tool_calls_from_text(text: str) -> List[Dict[str, Any]]:
-    """Parse a pseudo-call such as ``web_fact_checker(query='...')`` that a weak model wrote as plain text."""
+    """Parse a tool call written as text, for example ``web_fact_checker(query='...')``."""
     if not text:
         return []
     pattern = r"(" + "|".join(re.escape(name) for name in ALL_TOOL_NAMES) + r")\s*\("

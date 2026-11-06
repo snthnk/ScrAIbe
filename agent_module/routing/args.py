@@ -1,8 +1,4 @@
-"""Argument grounding: whoever picks the tool (LLM or rules), the heavy arguments come from the graph state.
-
-The LLM decides *which* tool to call. It is not trusted to copy a 300-word essay or the task condition
-verbatim, so those are filled in from the state — deterministic and cheap.
-"""
+"""Build tool arguments from the selection and the current graph state."""
 
 import re
 from typing import Any, Dict, List, Optional

@@ -1,11 +1,4 @@
-"""
-ScrAIbe — AI-наставник по подготовке к сочинению ЕГЭ (Задание 27).
-Интерфейс на Streamlit:
-- Проверка по критериям ФИПИ (K1–K10, шкала 2025/2026, макс 22 балла)
-- Мгновенный экспресс-анализ NLP (орфография, пунктуация, логика, факты)
-- Сократический диалог с наставником (LangGraph / Gemini / Mistral / офлайн-режим)
-- Прозрачные логи рассуждений (Reasoning)
-"""
+"""Интерфейс Streamlit для ввода сочинения, диалога и просмотра результатов анализа."""
 
 import re
 from typing import List
@@ -346,11 +339,7 @@ def perform_fast_analysis(essay_text: str):
 
 
 def offline_tutor_reply(user_msg: str, essay_text: str, source_text: str) -> tuple[str, List[str]]:
-    """Офлайн-режим без LLM: сократический ответ строится только по результату детерминированного NLP-анализа.
-
-    Никаких заготовок под конкретное сочинение: вопрос ученику зависит от первой найденной ошибки и от
-    слабейшего критерия. Для полноценного диалога (инструменты, RAG, поиск) нужен режим «ИИ-наставник».
-    """
+    """Формирует ответ по результатам NLP-анализа вне графа диалога."""
     user_lower = user_msg.lower()
     reasoning = ["Офлайн-режим: LLM не используется, ответ строится по результатам NLP-анализа."]
 
@@ -416,7 +405,7 @@ def _log_reply(tag: str, reasoning: List[str], reply: str) -> None:
 
 
 def execute_agent_step(user_input: str, is_demo: bool) -> tuple[str, List[str]]:
-    """Один шаг диалога: LangGraph-агент с LLM из .env либо офлайн-режим без LLM."""
+    """Обрабатывает реплику через граф или по результатам NLP-анализа."""
     mode_str = "OFFLINE" if is_demo else "LIVE_LLM"
     logger.info("=" * 80)
     logger.info(f"UI DIALOGUE STEP START | MODE={mode_str} | INPUT_LEN={len(user_input)}")

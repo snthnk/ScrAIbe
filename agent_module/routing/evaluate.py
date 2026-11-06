@@ -26,7 +26,7 @@ from agent_module.routing.selector import decide_with_llm
 DEFAULT_SCENARIOS_PATH = DATA_DIR / "tool_selection_scenarios.csv"
 NO_TOOL = "none"
 
-# Короткое сочинение-заглушка: его текст нужен, чтобы у инструментов «для сочинения» были входные данные.
+# Общее сочинение для сценариев с заполненным полем essay_present.
 SAMPLE_ESSAY = (
     "Какова роль природы в жизни человека? Над этим вопросом размышляет К.Г. Паустовский.\n\n"
     "Автор рассказывает, как он ушёл в лес, чтобы побыть наедине с собой. Этот пример показывает, "
@@ -62,7 +62,7 @@ def load_scenarios(path: Optional[Union[str, Path]] = None) -> List[Scenario]:
         ]
 
 
-# Для абляции: без таблицы правил, только роль и описания инструментов (они приходят через bind_tools).
+# Короткий системный промпт для сравнения. Схемы инструментов передаются через bind_tools.
 MINIMAL_SYSTEM_PROMPT = (
     "You are a tutoring agent helping a student improve an EGE Russian essay. You must respond in Russian. "
     "Call a tool only if it is needed to answer the student's latest message; otherwise answer directly."
@@ -99,7 +99,7 @@ def predict_rules(scenario: Scenario) -> Dict[str, Any]:
 
 
 def make_llm_predictor(llm: Any, prompt: str = "full", mask_step: bool = False) -> Callable[[Scenario], Dict[str, Any]]:
-    """Решение принимает только LLM: без запасного варианта на правилах. prompt/mask_step — режимы абляции."""
+    """Создаёт функцию оценки LLM по выбранному промпту."""
 
     def predict(scenario: Scenario) -> Dict[str, Any]:
         case = build_case(scenario, prompt=prompt, mask_step=mask_step)

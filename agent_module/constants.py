@@ -1,12 +1,9 @@
-"""Shared constants for the agent: FIPI scale and tool names.
-
-Single source of truth — previously the FIPI maxima were copy-pasted three times in nodes.py.
-"""
+"""Score limits and tool identifiers used by the agent."""
 
 import re
 from typing import Dict, Optional, Tuple
 
-# Official maximum primary score per criterion (task 27, FIPI 2025/2026 scale used by the NLP module).
+# Maximum score per criterion in the NLP module.
 OFFICIAL_MAX: Dict[str, int] = {
     "K1": 1,
     "K2": 3,
@@ -70,7 +67,7 @@ _CRITERION_RE = re.compile(r"^\s*[КKkк]\s*(\d{1,2})\b")
 def normalize_criterion_id(value: object) -> Optional[str]:
     """``'К2'`` (Cyrillic), ``'k2'``, ``'K 2 (комментарий)'`` -> ``'K2'``; unknown -> ``None``.
 
-    LLMs happily emit the Cyrillic letter, which would silently bypass ``criterion == "K2"`` guards.
+    The agent uses Latin K in criterion IDs.
     """
     match = _CRITERION_RE.match(str(value or ""))
     if not match:

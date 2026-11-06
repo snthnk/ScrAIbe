@@ -16,7 +16,7 @@ from agent_module.tools.nlp_tools import (
 from agent_module.tools.rag import literature_rag
 from agent_module.tools.web_search import web_fact_checker
 
-# Order matters a little: this is the order in which the tools are shown to the LLM.
+# Tool order in the schema sent to the model.
 ALL_TOOLS: List[BaseTool] = [
     nlp_analyzer,
     nlp_structure_tool,

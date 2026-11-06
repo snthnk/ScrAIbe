@@ -1,6 +1,6 @@
 """Tool selection: the LLM decides via function calling, the keyword rules are the fallback.
 
-    TOOL_SELECTION_MODE=llm    (default) the LLM picks the tool; if it fails or answers nonsense, rules take over
+    TOOL_SELECTION_MODE=llm    (default) the LLM picks the tool, with rules available after a selection error
     TOOL_SELECTION_MODE=rules  only the keyword rules pick the tool (no LLM call for the decision)
 
 Every decision is logged with who made it (``decided_by``) — see ``ToolDecision.log_line``.
@@ -93,8 +93,7 @@ def select_tool(
         logger.warning("LLM tool selection failed (%s: %s); falling back to keyword rules", type(exc).__name__, str(exc)[:200])
         decision = select_tool_by_rules(history, state, step_text)
         if decision.tool is None:
-            # No rule applies and the LLM is the only thing that could answer: surface the original error so
-            # the caller's retry / model-fallback logic can deal with it (rate limits carry a retry delay).
+            # Keep the original provider error for the runner's retry logic.
             raise
         decision.fallback_reason = f"{type(exc).__name__}: {str(exc)[:160]}"
     logger.info(decision.log_line(user_text))

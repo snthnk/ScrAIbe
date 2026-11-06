@@ -10,7 +10,6 @@ def pick(text, state="essay", step=""):
 
 
 def test_thanks_never_triggers_a_tool_even_if_the_plan_step_mentions_rag():
-    # В старой версии _force_tool_call вызывал literature_rag на любое сообщение, если шаг плана говорил о примере.
     decision = pick("Спасибо!", step="Подобрать пример-иллюстрацию через literature_rag")
     assert decision.tool is None
     assert decision.decided_by == "rules"

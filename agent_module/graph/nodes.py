@@ -195,7 +195,7 @@ def local_reasoning(state: Dict[str, Any], llm: Any) -> Dict[str, Any]:
     elif decision.llm_message is not None:
         response = decision.llm_message
     else:
-        # Rules found nothing to call; let the LLM answer the student directly, without tools.
+        # With no matching rule, ask the model for a direct reply.
         direct_prompt = f"{system_prompt}\n{DIRECT_ANSWER_ADDENDUM}"
         response = llm.invoke([SystemMessage(content=direct_prompt)] + sanitize_message_history(history))
 
@@ -243,7 +243,7 @@ def tool_executor(state: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(tool_calls, list) and (
         (isinstance(last_message, AIMessage) and not getattr(last_message, "tool_calls", None)) or isinstance(last_message, dict)
     ):
-        # The calls were parsed out of raw provider kwargs / plain text: store them natively on the message.
+        # Store parsed calls on the assistant message before adding the tool results.
         messages = messages[:-1] + [with_raw_tool_calls(last_message, tool_calls)]
 
     tool_messages = []
@@ -294,7 +294,7 @@ NO_ANSWER_MESSAGE = "Не получилось сформулировать от
 
 
 def _tool_message_this_turn(messages: List[Any]) -> Any:
-    """Latest ToolMessage after the student's last message (results of earlier turns must not leak in)."""
+    """Return the latest tool result in the current turn."""
     for msg in reversed(messages):
         coerced = coerce_messages([msg])
         item = coerced[0] if coerced else msg

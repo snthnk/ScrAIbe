@@ -66,7 +66,7 @@ def build_workflow(llm: Any) -> Any:
     graph.add_node("global_planner", partial(global_planner, llm=llm))
     graph.add_node("local_reasoning", partial(local_reasoning, llm=llm))
     graph.add_node("tool_executor", tool_executor)
-    graph.add_node("response_generator", response_generator)
+    graph.add_node("response_generator", partial(response_generator, llm=llm))
 
     graph.set_entry_point("check_context")
     graph.add_conditional_edges(

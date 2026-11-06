@@ -1,9 +1,7 @@
 """Keyword rules for tool selection — the fallback when the LLM is unavailable, and the eval baseline.
 
-Priority (first match wins): criterion question -> error check -> fact question -> argument request
--> generic "проверь" with an essay present. Only the *student's last message* is looked at; the plan
-step never forces a tool (the old ``_force_tool_call`` fired ``literature_rag`` for any message such as
-«Спасибо!» whenever the plan step mentioned a literary example).
+The first matching rule wins. The rules check the student's last message for a criterion question,
+an error check, a fact question, a literary argument request or a general essay review.
 """
 
 import re

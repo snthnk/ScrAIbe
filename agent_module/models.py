@@ -108,8 +108,11 @@ class AgentStateModel(BaseModel):
     task_condition: str = ""
     user_profile: Dict[str, Any] = Field(default_factory=dict)
     nlp_analysis: Dict[str, Any] = Field(default_factory=dict)
+    essay_context_fingerprint: str = ""
     global_plan: List[str] = Field(default_factory=list)
     current_step: int = 0
+    step_feedback: str = ""
+    step_feedback_context: str = ""
     show_reasoning: bool = False
     reasoning_log: List[str] = Field(default_factory=list)
     essay_sent: bool = False

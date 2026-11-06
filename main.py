@@ -33,7 +33,6 @@ def main() -> None:
         "user_profile": {},
         "task_condition": TEST_TOPIC,
         "essay_text": TEST_ESSAY,
-        "essay_sent": False,
         "show_reasoning": os.getenv("SHOW_REASONING", "0") == "1",
         "reasoning_log": [],
     }
@@ -59,9 +58,6 @@ def main() -> None:
         if user_input.lower() in {"exit", "quit", "выход"}:
             logger.info("CLI: Завершение сессии по запросу пользователя")
             break
-        if not state.get("essay_sent"):
-            state["messages"] = state.get("messages", []) + [HumanMessage(content=f"Сочинение: {TEST_ESSAY}")]
-            state["essay_sent"] = True
         state["messages"] = state.get("messages", []) + [HumanMessage(content=user_input)]
         state.update(runner.invoke(state))
         _print_reasoning(state)

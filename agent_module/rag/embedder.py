@@ -1,8 +1,7 @@
 """Эмбеддеры для RAG.
 
-* ``SentenceTransformerEmbedder`` — боевой: ``intfloat/multilingual-e5-large`` (префиксы «query: »/«passage: »).
-* ``HashingEmbedder`` — офлайн: хеширование символьных n-грамм в вектор фиксированной длины. Не требует
-  скачивания модели и нужен для тестов и проверки конвейера; качество семантического поиска у него ниже.
+* ``SentenceTransformerEmbedder`` кодирует текст через ``intfloat/multilingual-e5-large``.
+* ``HashingEmbedder`` строит векторы по символьным n-граммам для локальных тестов.
 """
 
 import hashlib

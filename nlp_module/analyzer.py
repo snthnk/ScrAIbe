@@ -8,7 +8,7 @@ from agent_module.utils.logger import setup_logger
 
 logger = setup_logger("ege_ai_agent.nlp")
 
-# Define constants
+# Тема и сочинение для примера в CLI.
 TEST_TOPIC = "Какова роль природы в жизни человека?"
 TEST_ESSAY = (
     "Какова роль природы в жизни человека? Над этим вопросом размышляет К.Г. Паустовский.\n"
@@ -21,7 +21,7 @@ TEST_ESSAY = (
     "Таким образом, природу надо беречь, потому что она наш дом."
 )
 
-# Request-scoped caches to avoid state leakage
+# Результаты отдельных этапов хранятся в текущем контексте.
 _semantics_cache = contextvars.ContextVar("_semantics_cache", default=None)
 _ortho_cache = contextvars.ContextVar("_ortho_cache", default=None)
 _punct_cache = contextvars.ContextVar("_punct_cache", default=None)
@@ -160,8 +160,7 @@ def analyze_structure(text: str) -> Dict[str, Any]:
     for p in paragraphs:
         sentences_count += len(_sentenize_fallback(p))
 
-    # Calculate word count according to notebook / FIPI rules (with fallback to regex)
-    # Initials pattern: letters like А.С. Пушкин
+    # Сочетание инициалов и фамилии учитывается как одно слово.
     initials_pattern = re.compile(r'([А-ЯЁ]\.\s?[А-ЯЁ]\.\s[А-ЯЁ][а-яё]+)|([А-ЯЁ]\.\s[А-ЯЁ][а-яё]+)')
     found_initials = initials_pattern.findall(text)
     initials_count = len(found_initials)
@@ -582,7 +581,7 @@ def _detect_logic_errors(text: str) -> List[Dict[str, Any]]:
 
 
 def _check_author_position(text: str) -> tuple[bool, str]:
-    """Checks whether the author position (K1) is formulated meaningfully or superficially."""
+    """Проверяет формулировку позиции автора по шаблону К1."""
     if not text or not text.strip():
         return True, "Позиция автора сформулирована верно."
 
@@ -687,8 +686,7 @@ def analyze_grammar(text: str) -> Dict[str, Any]:
 
 
 def score_fipi(text: str) -> Dict[str, Any]:
-    # Официальные критерии оценивания задания 27 ЕГЭ 2025/2026: https://fipi.ru/ege/demoversii-specifikacii-kodifikatory
-    # 10 критериев K1–K10, сумма max = 22, max_score = 22 всегда.
+    # Оценщик использует шкалу К1–К10 с суммарным максимумом 22.
     struct = analyze_structure(text)
     words_count = struct["words"]
 
@@ -715,7 +713,7 @@ def score_fipi(text: str) -> Dict[str, Any]:
 
     criteria = {}
 
-    # Safe retrieval from caches without calling patched/mocked functions
+    # Берём результаты ранее выполненных этапов анализа.
     sem_res = _get_cache(_semantics_cache).get(text)
     ortho_errors = _get_cache(_ortho_cache).get(text, [])
     punct_errors = _get_cache(_punct_cache).get(text, [])
@@ -773,7 +771,7 @@ def score_fipi(text: str) -> Dict[str, Any]:
         "status": "ok" if k1_score else "critical"
     }
 
-    # K2: Комментарий к проблеме (max 3). КАСКАДНОЕ ОБНУЛЕНИЕ ПРИ K1 = 0!
+    # К2. Комментарий к проблеме. При нуле по К1 оценка равна нулю.
     if k1_score == 0:
         k2_score = 0
         k2_comment = f"0 баллов: критерий обнулен по правилам ФИПИ из-за ошибки в K1 = 0 (неверная позиция автора){special_rubric_comment}"
@@ -796,7 +794,7 @@ def score_fipi(text: str) -> Dict[str, Any]:
         "comment": k2_comment
     }
 
-    # K3: Собственное мнение и аргументация (max 2). КАСКАДНОЕ ОБНУЛЕНИЕ ПРИ K1 = 0!
+    # К3. Собственное мнение и аргумент. При нуле по К1 оценка равна нулю.
     if k1_score == 0:
         k3_score = 0
         k3_comment = f"0 баллов: критерий обнулен по правилам ФИПИ из-за ошибки в K1 = 0 (собственное отношение не оценивается без верной позиции автора){special_rubric_comment}"
@@ -1057,7 +1055,7 @@ def full_analysis(text: str) -> Dict[str, Any]:
     agent_hint = " ".join(hints) if hints else "все отлично"
     elapsed = time.time() - t0
 
-    # Detailed comprehensive log of full reasoning, texts, and scoring breakdown
+    # Запись результатов анализа и баллов по критериям.
     crit = score.get("criteria", {})
     total_score = score.get("total_score", 0)
     max_score = score.get("max_score", 22)

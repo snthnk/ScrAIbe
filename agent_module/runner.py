@@ -1,8 +1,4 @@
-"""Running the compiled workflow with retries and model fallback — shared by the CLI and the Streamlit UI.
-
-Previously this lived in ``main.py`` and ``app.py`` imported it from there. The fallback candidates also
-used to be hard-coded Gemini names that were then passed to the Mistral client when LLM_PROVIDER=mistral.
-"""
+"""Run the compiled workflow with retries and provider-specific model fallback."""
 
 import re
 import time

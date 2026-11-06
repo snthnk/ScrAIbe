@@ -1,8 +1,4 @@
-"""Deterministic formatting of tool results into the text the student sees.
-
-NLP results (errors, scores, structure) are rendered by code, not by the LLM: the numbers the student
-sees are exactly the numbers the NLP module computed.
-"""
+"""Render tool results for the chat, including scores and errors from the NLP module."""
 
 import json
 import re
@@ -89,7 +85,7 @@ def parse_error_item(err: Any) -> Dict[str, Any] | None:
 
 
 def _load_errors_payload(tool_content: Any) -> Any:
-    """Best-effort decode of an errors payload (JSON / python-literal string, list or dict)."""
+    """Read errors from JSON, a Python literal, a list or a dict."""
     import ast
 
     if not isinstance(tool_content, str):
@@ -288,7 +284,7 @@ K2_NO_SOURCE_DISCLOSURE = "исходный текст для анализа к2
 
 
 def is_generic_expert_output(output: str, essay_text: str) -> bool:
-    """Heuristic: does the expert answer talk about something that is not in the student's essay?"""
+    """Screen expert replies using common phrases and vocabulary from the essay."""
     if not output:
         return True
     lowered = output.lower()
@@ -383,7 +379,7 @@ def _format_expert(tool_args: Dict[str, Any], tool_content: str, state_essay_tex
     if is_generic_expert_output(tool_content, essay_text):
         answer = generate_expert_fallback(essay_text, criterion)
 
-    # The LLM must not invent its own score: replace any "X из 3/5/6" with the deterministic NLP score.
+            # Use the NLP score in the criterion comment.
     official = nlp_module.score_fipi(essay_text)["criteria"].get(criterion)
     if official is not None and criterion in OFFICIAL_MAX:
         det_max = OFFICIAL_MAX[criterion]

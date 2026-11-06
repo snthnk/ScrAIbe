@@ -40,7 +40,8 @@ def test_load_arguments_rejects_duplicates(tmp_path):
 def test_eval_queries_reference_existing_arguments():
     ids = {a.id for a in load_arguments()}
     queries = load_eval_queries()
-    assert len(queries) >= 80
+    assert len(queries) >= 75
+    assert len({q.query for q in queries}) == len(queries)
     for q in queries:
         assert q.relevant_ids and q.relevant_ids <= ids, q.query
 

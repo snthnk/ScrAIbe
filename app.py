@@ -1,11 +1,4 @@
-"""
-ScrAIbe — AI-наставник по подготовке к сочинению ЕГЭ (Задание 27).
-Интерфейс на Streamlit:
-- Проверка по критериям ФИПИ (K1–K10, шкала 2025/2026, макс 22 балла)
-- Мгновенный экспресс-анализ NLP (орфография, пунктуация, логика, факты)
-- Сократический диалог с наставником (LangGraph / Gemini / Mistral / офлайн-режим)
-- Прозрачные логи рассуждений (Reasoning)
-"""
+"""Интерфейс Streamlit для ввода сочинения, диалога и просмотра результатов анализа."""
 
 import re
 from typing import List
@@ -346,15 +339,13 @@ def perform_fast_analysis(essay_text: str):
 
 
 def offline_tutor_reply(user_msg: str, essay_text: str, source_text: str) -> tuple[str, List[str]]:
-    """Офлайн-режим без LLM: сократический ответ строится только по результату детерминированного NLP-анализа.
-
-    Никаких заготовок под конкретное сочинение: вопрос ученику зависит от первой найденной ошибки и от
-    слабейшего критерия. Для полноценного диалога (инструменты, RAG, поиск) нужен режим «ИИ-наставник».
-    """
+    """Формирует ответ по результатам NLP-анализа вне графа диалога."""
     user_lower = user_msg.lower()
     reasoning = ["Офлайн-режим: LLM не используется, ответ строится по результатам NLP-анализа."]
 
     analysis = full_analysis(essay_text) if essay_text.strip() else {}
+    if analysis:
+        st.session_state["analysis_result"] = analysis
     errors = analysis.get("errors", [])
     criteria = analysis.get("score", {}).get("criteria", {})
     weak = sorted(
@@ -414,7 +405,7 @@ def _log_reply(tag: str, reasoning: List[str], reply: str) -> None:
 
 
 def execute_agent_step(user_input: str, is_demo: bool) -> tuple[str, List[str]]:
-    """Один шаг диалога: LangGraph-агент с LLM из .env либо офлайн-режим без LLM."""
+    """Обрабатывает реплику через граф или по результатам NLP-анализа."""
     mode_str = "OFFLINE" if is_demo else "LIVE_LLM"
     logger.info("=" * 80)
     logger.info(f"UI DIALOGUE STEP START | MODE={mode_str} | INPUT_LEN={len(user_input)}")
@@ -437,18 +428,12 @@ def execute_agent_step(user_input: str, is_demo: bool) -> tuple[str, List[str]]:
         _log_reply("FALLBACK", reasoning, reply)
         return reply, reasoning
 
-    state = st.session_state["workflow_state"]
+    state = dict(st.session_state["workflow_state"])
     state["task_condition"] = st.session_state["task_condition"]
     state["source_text"] = source
     state["essay_text"] = essay
     state["show_reasoning"] = True
 
-    if not state.get("essay_sent"):
-        first_content = f"Сочинение: {essay}"
-        if source:
-            first_content = f"Исходный текст: {source}\n\n" + first_content
-        state["messages"] = state.get("messages", []) + [HumanMessage(content=first_content)]
-        state["essay_sent"] = True
     state["messages"] = state.get("messages", []) + [HumanMessage(content=user_input)]
 
     try:
@@ -461,8 +446,12 @@ def execute_agent_step(user_input: str, is_demo: bool) -> tuple[str, List[str]]:
         return reply, reasoning
 
     state.update(result)
+    state["essay_sent"] = True
     reasoning_logs = list(state.get("reasoning_log", []))
     state["reasoning_log"] = []
+    st.session_state["workflow_state"] = state
+    if st.session_state["analysis_result"] is None and state.get("nlp_analysis"):
+        st.session_state["analysis_result"] = state["nlp_analysis"]
     answer = extract_last_ai_message(state.get("messages", []))
     logger.info(f"UI: live workflow completed (answer_len={len(answer)}, reasoning_items={len(reasoning_logs)})")
     _log_reply("LIVE", reasoning_logs, answer)
@@ -538,6 +527,9 @@ st.markdown(
 # Input Section
 # ==============================================================================
 
+input_fields = ("task_condition", "source_text", "essay_text")
+previous_inputs = tuple(st.session_state[field] for field in input_fields)
+
 with st.expander("📌 **Тема и исходный текст автора**", expanded=True):
     col_top1, col_top2 = st.columns([1, 1])
     with col_top1:
@@ -570,6 +562,8 @@ essay_val = st.text_area(
     placeholder="Вставьте сюда текст вашего сочинения для проверки...",
 )
 st.session_state["essay_text"] = essay_val
+if previous_inputs != tuple(st.session_state[field] for field in input_fields):
+    st.session_state["analysis_result"] = None
 
 # Text metrics & word count feedback
 words_count = len(re.findall(r"\b\w+(?:-\w+)*\b", essay_val)) if essay_val.strip() else 0
@@ -610,13 +604,10 @@ if btn_start_dialog:
     if not essay_val.strip():
         st.warning("Пожалуйста, введите текст сочинения перед началом диалога.")
     else:
-        perform_fast_analysis(essay_val)
+        start_message = "Здравствуйте! Давай начнём занятие по моему сочинению."
         with st.spinner("Наставник изучает ваше сочинение..."):
-            reply, reasoning = execute_agent_step(
-                user_input="Здравствуйте! Я написал сочинение и хочу его проверить.",
-                is_demo=is_demo_mode,
-            )
-            st.session_state["messages"].append({"role": "user", "content": "Здравствуйте! Проверьте, пожалуйста, моё сочинение."})
+            reply, reasoning = execute_agent_step(user_input=start_message, is_demo=is_demo_mode)
+            st.session_state["messages"].append({"role": "user", "content": start_message})
             st.session_state["messages"].append({"role": "assistant", "content": reply, "reasoning": reasoning})
         st.rerun()
 

@@ -5,7 +5,7 @@ Environment (see ``.env.example``):
     VSELLM_MODEL_NAME / MISTRAL_MODEL_NAME / GEMINI_MODEL_NAME / MODEL_NAME
     VSELLM_EXPERT_MODEL_NAME / MISTRAL_EXPERT_MODEL_NAME / EXPERT_MODEL_NAME   model for ``expert_reasoning_tool`` and semantic NLP analysis
     VSELLM_API_KEY, VSELLM_BASE_URL, MISTRAL_API_KEY, GOOGLE_API_KEY or GEMINI_API_KEY
-    LLM_TEMPERATURE           optional; for vsellm it is sent only when set (some models reject a custom temperature)
+    LLM_TEMPERATURE           sampling temperature for the OpenAI-compatible client
     LLM_FALLBACKS=0           disable the fallback chain
 """
 
@@ -23,7 +23,7 @@ PROVIDER_MISTRAL = "mistral"
 PROVIDER_GEMINI = "gemini"
 PROVIDER_VSELLM = "vsellm"
 
-# The model name on VseLLM is whatever the gateway lists for the account; set VSELLM_MODEL_NAME in .env.
+# VSELLM_MODEL_NAME sets the model ID listed by the gateway.
 DEFAULT_MODELS = {PROVIDER_MISTRAL: "ministral-8b-latest", PROVIDER_GEMINI: "gemini-3.6-flash", PROVIDER_VSELLM: "claude-haiku-5.5"}
 DEFAULT_VSELLM_BASE_URL = "https://api.vsellm.ru/v1"
 # Tried (in order) when the chosen model of this provider is rate-limited or unavailable.
@@ -41,7 +41,7 @@ def _is_placeholder(value: str) -> bool:
 
 
 def fallbacks_enabled() -> bool:
-    """LLM_FALLBACKS=0 отключает запасные модели (нужно для оценки: иначе непонятно, какая модель ответила)."""
+    """Проверяет, включены ли запасные модели."""
     return os.getenv("LLM_FALLBACKS", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
@@ -50,7 +50,7 @@ def provider() -> str:
 
 
 def _load_env() -> None:
-    # override=False: a key exported in the shell / CI wins over a stale value in .env.
+    # Environment variables take precedence over .env.
     load_dotenv(dotenv_path=_ENV_PATH, override=False)
 
 
@@ -66,7 +66,7 @@ def resolve_model_name(provider_name: str, override: Optional[str] = None, exper
 
 
 def fallback_model_names(provider_name: str) -> List[str]:
-    """Model names of the *same provider* to retry with. Never mixes providers (a Gemini name sent to Mistral fails)."""
+    """Model names for workflow retries with the selected provider."""
     if provider_name == PROVIDER_VSELLM:
         models: Tuple[str, ...] = ()  # the gateway's model ids are account-specific: only FALLBACK_MODEL_NAME
     else:

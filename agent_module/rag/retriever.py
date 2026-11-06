@@ -1,7 +1,7 @@
 """Гибридный поиск: ближайшие по эмбеддингу аргументы (FAISS) + фильтр по пересечению тегов (>= 1).
 
 Режимы ``mode``:
-    vector  — только косинусная близость (базовая линия для оценки);
+    vector  — поиск по косинусной близости;
     hybrid  — из кандидатов по вектору остаются те, у кого есть хотя бы один общий тег с запросом;
               если таких нет (или у запроса нет тегов), результат совпадает с ``vector``; если их меньше k,
               выдача добирается лучшими по вектору.
@@ -141,7 +141,7 @@ class HybridRetriever:
                     hit.matched_tags = common
                     filtered.append(hit)
             if filtered:
-                if len(filtered) < k:  # тегов совпало мало — добираем лучшими по вектору, чтобы не отдавать пустую выдачу
+                if len(filtered) < k:  # Заполняем оставшиеся позиции по векторной близости.
                     kept = {hit.argument.id for hit in filtered}
                     filtered += [hit for hit in candidates if hit.argument.id not in kept]
                 candidates, applied = filtered, True

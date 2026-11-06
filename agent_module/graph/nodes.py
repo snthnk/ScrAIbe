@@ -1,5 +1,6 @@
 """LangGraph nodes: CheckContext, GlobalPlanner, LocalReasoning, ToolExecutor, ResponseGenerator."""
 
+import hashlib
 import json
 import re
 import uuid
@@ -11,9 +12,11 @@ from agent_module.constants import ESSAY_PREFIXES, NLP_TOOL_CACHE_SECTION
 from agent_module.graph.formatting import auto_answer_from_tool, format_full_analysis, format_nlp_errors
 from agent_module.messages import (
     coerce_messages,
+    is_ai_message,
     is_human,
     last_tool_call,
     message_content,
+    safe_json_loads,
     sanitize_message_history,
     state_to_dict,
     tool_calls_from_message,
@@ -22,6 +25,7 @@ from agent_module.messages import (
 from agent_module.prompts import (
     DIRECT_ANSWER_ADDENDUM,
     GLOBAL_PLANNER_SYSTEM_PROMPT,
+    LESSON_PROGRESS_SYSTEM_PROMPT,
     LOCAL_REASONING_SYSTEM_PROMPT,
 )
 from agent_module.routing import select_tool
@@ -31,6 +35,10 @@ from agent_module.utils import setup_logger
 logger = setup_logger()
 
 _EXPLICIT_REQUEST_ROOTS = ("провер", "ошибк", "критер", "разбор", "оцен", "анализ")
+_ACKNOWLEDGEMENT_WORDS = {
+    "ага", "благодарю", "большое", "да", "здравствуйте", "нет", "ок", "окей",
+    "понял", "поняла", "понятно", "привет", "спасибо", "угу", "хорошо", "ясно",
+}
 
 
 def _append_reasoning(state: Dict[str, Any], entry: str) -> Dict[str, Any]:
@@ -100,16 +108,34 @@ def check_context(state: Dict[str, Any]) -> Dict[str, Any]:
     user_text = message_content(messages[-1]) if messages else ""
 
     submitted_essay = _split_essay_prefix(user_text)
-    is_new = not state.get("global_plan") or submitted_essay is not None
-    logger.debug(f"CheckContext: messages_count={len(messages)}, is_new={is_new}, has_source={bool(state.get('source_text'))}")
-    if not is_new:
+    previous_context = state.get("essay_context_fingerprint", "")
+    essay_text = submitted_essay if submitted_essay is not None else state.get("essay_text", "")
+    if not essay_text and submitted_essay is None and not previous_context and not state.get("global_plan"):
+        essay_text = user_text
+    task_condition = state.get("task_condition", "")
+    source_text = state.get("source_text", "")
+    context = json.dumps([task_condition, source_text, essay_text], ensure_ascii=False)
+    fingerprint = hashlib.sha256(context.encode("utf-8")).hexdigest()
+    if previous_context == fingerprint and submitted_essay is None:
         return {}
 
-    essay_text = submitted_essay if submitted_essay is not None else state.get("essay_text", "")
-    if not essay_text:
-        essay_text = user_text
-    logger.debug(f"CheckContext: registered essay_text length={len(essay_text)} chars")
-    return {"essay_text": essay_text, "current_step": 0, "nlp_analysis": {}}
+    parts = [
+        f"{label}: {value}" for label, value in (
+            ("Тема задания", task_condition),
+            ("Исходный текст", source_text),
+            ("Сочинение", essay_text if submitted_essay is None else ""),
+        ) if value
+    ]
+    history = [HumanMessage(content="\n\n".join(parts))] if parts else []
+    history.extend(messages[-1:])
+    logger.debug(f"CheckContext: refreshed essay context (essay_length={len(essay_text)})")
+    return {
+        "essay_text": essay_text,
+        "essay_context_fingerprint": fingerprint,
+        "messages": history,
+        "current_step": 0 if submitted_essay is not None else state.get("current_step", 0),
+        "nlp_analysis": {},
+    }
 
 
 def global_planner(state: Dict[str, Any], llm: Any) -> Dict[str, Any]:
@@ -132,6 +158,8 @@ def global_planner(state: Dict[str, Any], llm: Any) -> Dict[str, Any]:
         "nlp_analysis": nlp_analysis,
         "global_plan": plan,
         "current_step": 0,
+        "step_feedback": "",
+        "step_feedback_context": "",
         **_append_reasoning(state, f"Global plan: {plan}"),
     }
 
@@ -167,7 +195,7 @@ def local_reasoning(state: Dict[str, Any], llm: Any) -> Dict[str, Any]:
     elif decision.llm_message is not None:
         response = decision.llm_message
     else:
-        # Rules found nothing to call; let the LLM answer the student directly, without tools.
+        # With no matching rule, ask the model for a direct reply.
         direct_prompt = f"{system_prompt}\n{DIRECT_ANSWER_ADDENDUM}"
         response = llm.invoke([SystemMessage(content=direct_prompt)] + sanitize_message_history(history))
 
@@ -215,7 +243,7 @@ def tool_executor(state: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(tool_calls, list) and (
         (isinstance(last_message, AIMessage) and not getattr(last_message, "tool_calls", None)) or isinstance(last_message, dict)
     ):
-        # The calls were parsed out of raw provider kwargs / plain text: store them natively on the message.
+        # Store parsed calls on the assistant message before adding the tool results.
         messages = messages[:-1] + [with_raw_tool_calls(last_message, tool_calls)]
 
     tool_messages = []
@@ -266,7 +294,7 @@ NO_ANSWER_MESSAGE = "Не получилось сформулировать от
 
 
 def _tool_message_this_turn(messages: List[Any]) -> Any:
-    """Latest ToolMessage after the student's last message (results of earlier turns must not leak in)."""
+    """Return the latest tool result in the current turn."""
     for msg in reversed(messages):
         coerced = coerce_messages([msg])
         item = coerced[0] if coerced else msg
@@ -277,17 +305,64 @@ def _tool_message_this_turn(messages: List[Any]) -> Any:
     return None
 
 
-def response_generator(state: Dict[str, Any]) -> Dict[str, Any]:
+def _step_progress(state: Dict[str, Any], messages: List[Any], answer: str, llm: Any) -> Dict[str, Any]:
+    plan = state.get("global_plan", [])
+    step = state.get("current_step", 0)
+    if step + 1 >= len(plan):
+        return {}
+
+    feedback = state.get("step_feedback", "")
+    context = state.get("essay_context_fingerprint", "")
+    if not feedback:
+        return {"step_feedback": answer, "step_feedback_context": context}
+
+    student = _last_human_text(messages)
+    if not set(re.findall(r"\w+", student.casefold())) - _ACKNOWLEDGEMENT_WORDS:
+        return {}
+
+    evidence = {
+        "current_step": plan[step],
+        "next_step": plan[step + 1],
+        "task": state.get("task_condition", ""),
+        "source_text": state.get("source_text", ""),
+        "essay": state.get("essay_text", ""),
+        "context_changed_since_feedback": context != state.get("step_feedback_context", ""),
+        "previous_feedback": feedback,
+        "student_reply": student,
+        "latest_feedback": answer,
+    }
+    try:
+        reply = llm.invoke([
+            SystemMessage(content=LESSON_PROGRESS_SYSTEM_PROMPT),
+            HumanMessage(content=json.dumps(evidence, ensure_ascii=False)),
+        ])
+    except Exception as exc:
+        logger.warning("Lesson progress check failed (%s)", type(exc).__name__)
+        return {}
+
+    raw = message_content(reply).strip()
+    fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", raw, flags=re.IGNORECASE | re.DOTALL)
+    result = safe_json_loads(fenced[1] if fenced else raw)
+    if not isinstance(result, dict) or result.get("completed") is not True:
+        return {}
+    question = result.get("next_question")
+    if not isinstance(question, str) or not 0 < len(question.strip()) <= 240:
+        return {}
+    question = question.strip()
+    return {
+        "current_step": step + 1,
+        "step_feedback": question,
+        "step_feedback_context": context,
+        "messages": [*messages[:-1], AIMessage(content=f"{answer}\n\n{question}")],
+        **_append_reasoning(state, f"Lesson step completed: {plan[step]}"),
+    }
+
+
+def response_generator(state: Dict[str, Any], llm: Any) -> Dict[str, Any]:
     logger.info("Node: ResponseGenerator")
     state = state_to_dict(state)
-    current_step = state.get("current_step", 0)
-    plan = state.get("global_plan", [])
-    if plan and current_step < len(plan) - 1:
-        current_step += 1
-    logger.debug(f"ResponseGenerator: current_step={current_step}/{len(plan)}")
-
     messages = list(state.get("messages", []))
-    updates: Dict[str, Any] = {"current_step": current_step}
+    updates: Dict[str, Any] = {}
     if not messages:
         return updates
 
@@ -297,7 +372,7 @@ def response_generator(state: Dict[str, Any]) -> Dict[str, Any]:
     is_tool = isinstance(last_msg, ToolMessage)
     is_raw_data = content.startswith("[") or content.startswith("{") or content in _EMPTY_MARKERS
     if not (is_tool or not content or is_raw_data):
-        return updates
+        return _step_progress(state, messages, content, llm) if is_ai_message(last_msg) else updates
 
     tool_message = _tool_message_this_turn(messages)
     if tool_message is None:
@@ -312,7 +387,7 @@ def response_generator(state: Dict[str, Any]) -> Dict[str, Any]:
     answer = auto_answer_from_tool(tool_name, tool_args, tool_message.content, state.get("essay_text", ""))
     messages.append(AIMessage(content=answer))
     updates["messages"] = messages
-    return updates
+    return {**updates, **_step_progress(state, messages, answer, llm)}
 
 
 __all__ = [

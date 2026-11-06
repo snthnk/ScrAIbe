@@ -437,18 +437,12 @@ def execute_agent_step(user_input: str, is_demo: bool) -> tuple[str, List[str]]:
         _log_reply("FALLBACK", reasoning, reply)
         return reply, reasoning
 
-    state = st.session_state["workflow_state"]
+    state = dict(st.session_state["workflow_state"])
     state["task_condition"] = st.session_state["task_condition"]
     state["source_text"] = source
     state["essay_text"] = essay
     state["show_reasoning"] = True
 
-    if not state.get("essay_sent"):
-        first_content = f"Сочинение: {essay}"
-        if source:
-            first_content = f"Исходный текст: {source}\n\n" + first_content
-        state["messages"] = state.get("messages", []) + [HumanMessage(content=first_content)]
-        state["essay_sent"] = True
     state["messages"] = state.get("messages", []) + [HumanMessage(content=user_input)]
 
     try:
@@ -461,8 +455,10 @@ def execute_agent_step(user_input: str, is_demo: bool) -> tuple[str, List[str]]:
         return reply, reasoning
 
     state.update(result)
+    state["essay_sent"] = True
     reasoning_logs = list(state.get("reasoning_log", []))
     state["reasoning_log"] = []
+    st.session_state["workflow_state"] = state
     answer = extract_last_ai_message(state.get("messages", []))
     logger.info(f"UI: live workflow completed (answer_len={len(answer)}, reasoning_items={len(reasoning_logs)})")
     _log_reply("LIVE", reasoning_logs, answer)
@@ -538,6 +534,9 @@ st.markdown(
 # Input Section
 # ==============================================================================
 
+input_fields = ("task_condition", "source_text", "essay_text")
+previous_inputs = tuple(st.session_state[field] for field in input_fields)
+
 with st.expander("📌 **Тема и исходный текст автора**", expanded=True):
     col_top1, col_top2 = st.columns([1, 1])
     with col_top1:
@@ -570,6 +569,8 @@ essay_val = st.text_area(
     placeholder="Вставьте сюда текст вашего сочинения для проверки...",
 )
 st.session_state["essay_text"] = essay_val
+if previous_inputs != tuple(st.session_state[field] for field in input_fields):
+    st.session_state["analysis_result"] = None
 
 # Text metrics & word count feedback
 words_count = len(re.findall(r"\b\w+(?:-\w+)*\b", essay_val)) if essay_val.strip() else 0
@@ -639,6 +640,8 @@ tab_chat, tab_score, tab_errors, tab_guide = st.tabs([
 with tab_chat:
     st.markdown("### 💬 Сократический диалог с наставником")
     st.caption("Наставник не переписывает текст за вас, а помогает обнаружить слабые места и довести сочинение до максимума.")
+    if not is_demo_mode and st.session_state["workflow_state"].get("global_plan"):
+        st.caption("Когда закончите текущий шаг, напишите «Шаг выполнен» или «Следующий шаг».")
 
     # Display chat history
     if not st.session_state["messages"]:

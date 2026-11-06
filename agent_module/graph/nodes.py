@@ -1,5 +1,6 @@
 """LangGraph nodes: CheckContext, GlobalPlanner, LocalReasoning, ToolExecutor, ResponseGenerator."""
 
+import hashlib
 import json
 import re
 import uuid
@@ -31,6 +32,7 @@ from agent_module.utils import setup_logger
 logger = setup_logger()
 
 _EXPLICIT_REQUEST_ROOTS = ("провер", "ошибк", "критер", "разбор", "оцен", "анализ")
+_NEXT_STEP_REQUESTS = {"шаг выполнен", "следующий шаг", "перейдём к следующему шагу", "перейдем к следующему шагу"}
 
 
 def _append_reasoning(state: Dict[str, Any], entry: str) -> Dict[str, Any]:
@@ -100,16 +102,34 @@ def check_context(state: Dict[str, Any]) -> Dict[str, Any]:
     user_text = message_content(messages[-1]) if messages else ""
 
     submitted_essay = _split_essay_prefix(user_text)
-    is_new = not state.get("global_plan") or submitted_essay is not None
-    logger.debug(f"CheckContext: messages_count={len(messages)}, is_new={is_new}, has_source={bool(state.get('source_text'))}")
-    if not is_new:
+    previous_context = state.get("essay_context_fingerprint", "")
+    essay_text = submitted_essay if submitted_essay is not None else state.get("essay_text", "")
+    if not essay_text and submitted_essay is None and not previous_context and not state.get("global_plan"):
+        essay_text = user_text
+    task_condition = state.get("task_condition", "")
+    source_text = state.get("source_text", "")
+    context = json.dumps([task_condition, source_text, essay_text], ensure_ascii=False)
+    fingerprint = hashlib.sha256(context.encode("utf-8")).hexdigest()
+    if previous_context == fingerprint and submitted_essay is None:
         return {}
 
-    essay_text = submitted_essay if submitted_essay is not None else state.get("essay_text", "")
-    if not essay_text:
-        essay_text = user_text
-    logger.debug(f"CheckContext: registered essay_text length={len(essay_text)} chars")
-    return {"essay_text": essay_text, "current_step": 0, "nlp_analysis": {}}
+    parts = [
+        f"{label}: {value}" for label, value in (
+            ("Тема задания", task_condition),
+            ("Исходный текст", source_text),
+            ("Сочинение", essay_text if submitted_essay is None else ""),
+        ) if value
+    ]
+    history = [HumanMessage(content="\n\n".join(parts))] if parts else []
+    history.extend(messages[-1:])
+    logger.debug(f"CheckContext: refreshed essay context (essay_length={len(essay_text)})")
+    return {
+        "essay_text": essay_text,
+        "essay_context_fingerprint": fingerprint,
+        "messages": history,
+        "current_step": 0 if submitted_essay is not None else state.get("current_step", 0),
+        "nlp_analysis": {},
+    }
 
 
 def global_planner(state: Dict[str, Any], llm: Any) -> Dict[str, Any]:
@@ -157,6 +177,20 @@ def local_reasoning(state: Dict[str, Any], llm: Any) -> Dict[str, Any]:
         logger.info(f"LocalReasoning rendered tool result of '{tool_name}'")
         reasoning = _append_reasoning(state, f"Local step: {step_text}; rendered result of {tool_name}")
         return {"messages": state.get("messages", []) + [AIMessage(content=answer)], **reasoning}
+
+    plan = state.get("global_plan", [])
+    request = message_content(last_message).strip().rstrip(".!?").casefold()
+    if plan and is_human(last_message) and request in _NEXT_STEP_REQUESTS:
+        current_step = state.get("current_step", 0)
+        if current_step < len(plan) - 1:
+            current_step += 1
+            answer = f"Следующий шаг — {plan[current_step]}."
+        else:
+            answer = "Это последний шаг плана. Можем ещё раз проверить сочинение."
+        return {
+            "current_step": current_step,
+            "messages": state.get("messages", []) + [AIMessage(content=answer)],
+        }
 
     system_prompt = f"{LOCAL_REASONING_SYSTEM_PROMPT} Текущий шаг плана: {step_text}."
     decision = select_tool(llm, history, state, step_text, system_prompt)
@@ -280,14 +314,8 @@ def _tool_message_this_turn(messages: List[Any]) -> Any:
 def response_generator(state: Dict[str, Any]) -> Dict[str, Any]:
     logger.info("Node: ResponseGenerator")
     state = state_to_dict(state)
-    current_step = state.get("current_step", 0)
-    plan = state.get("global_plan", [])
-    if plan and current_step < len(plan) - 1:
-        current_step += 1
-    logger.debug(f"ResponseGenerator: current_step={current_step}/{len(plan)}")
-
     messages = list(state.get("messages", []))
-    updates: Dict[str, Any] = {"current_step": current_step}
+    updates: Dict[str, Any] = {}
     if not messages:
         return updates
 

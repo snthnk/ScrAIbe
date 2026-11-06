@@ -355,6 +355,8 @@ def offline_tutor_reply(user_msg: str, essay_text: str, source_text: str) -> tup
     reasoning = ["Офлайн-режим: LLM не используется, ответ строится по результатам NLP-анализа."]
 
     analysis = full_analysis(essay_text) if essay_text.strip() else {}
+    if analysis:
+        st.session_state["analysis_result"] = analysis
     errors = analysis.get("errors", [])
     criteria = analysis.get("score", {}).get("criteria", {})
     weak = sorted(
@@ -459,6 +461,8 @@ def execute_agent_step(user_input: str, is_demo: bool) -> tuple[str, List[str]]:
     reasoning_logs = list(state.get("reasoning_log", []))
     state["reasoning_log"] = []
     st.session_state["workflow_state"] = state
+    if st.session_state["analysis_result"] is None and state.get("nlp_analysis"):
+        st.session_state["analysis_result"] = state["nlp_analysis"]
     answer = extract_last_ai_message(state.get("messages", []))
     logger.info(f"UI: live workflow completed (answer_len={len(answer)}, reasoning_items={len(reasoning_logs)})")
     _log_reply("LIVE", reasoning_logs, answer)
@@ -611,13 +615,10 @@ if btn_start_dialog:
     if not essay_val.strip():
         st.warning("Пожалуйста, введите текст сочинения перед началом диалога.")
     else:
-        perform_fast_analysis(essay_val)
+        start_message = "Здравствуйте! Давай начнём занятие по моему сочинению."
         with st.spinner("Наставник изучает ваше сочинение..."):
-            reply, reasoning = execute_agent_step(
-                user_input="Здравствуйте! Я написал сочинение и хочу его проверить.",
-                is_demo=is_demo_mode,
-            )
-            st.session_state["messages"].append({"role": "user", "content": "Здравствуйте! Проверьте, пожалуйста, моё сочинение."})
+            reply, reasoning = execute_agent_step(user_input=start_message, is_demo=is_demo_mode)
+            st.session_state["messages"].append({"role": "user", "content": start_message})
             st.session_state["messages"].append({"role": "assistant", "content": reply, "reasoning": reasoning})
         st.rerun()
 
@@ -640,8 +641,6 @@ tab_chat, tab_score, tab_errors, tab_guide = st.tabs([
 with tab_chat:
     st.markdown("### 💬 Сократический диалог с наставником")
     st.caption("Наставник не переписывает текст за вас, а помогает обнаружить слабые места и довести сочинение до максимума.")
-    if not is_demo_mode and st.session_state["workflow_state"].get("global_plan"):
-        st.caption("Когда закончите текущий шаг, напишите «Шаг выполнен» или «Следующий шаг».")
 
     # Display chat history
     if not st.session_state["messages"]:

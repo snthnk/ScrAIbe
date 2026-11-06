@@ -88,19 +88,62 @@ def test_recheck_uses_edited_essay_instead_of_cached_analysis(monkeypatch):
     assert result["current_step"] == first["current_step"]
 
 
-def test_plan_advances_only_when_student_confirms_the_step(monkeypatch):
+def test_plan_advances_after_a_complete_answer_in_natural_language(monkeypatch):
     monkeypatch.setenv("TOOL_SELECTION_MODE", "llm")
-    workflow = build_workflow(FakeLLM([AIMessage(content="Пожалуйста!")]))
+    workflow = build_workflow(FakeLLM([
+        AIMessage(content="Как именно примеры дополняют друг друга?"),
+        AIMessage(content="Пожалуйста!"),
+        AIMessage(content="Уточни, какую сторону проблемы раскрывает каждый пример."),
+        AIMessage(content='{"completed": false}'),
+        AIMessage(content="Да, ты объяснил вклад обоих примеров."),
+        AIMessage(content='{"completed": true, "next_question": "Какой аргумент поддержит твою позицию?"}'),
+    ]))
     state = workflow.invoke({
-        "global_plan": ["Проверить структуру", "Проверить аргументы"],
+        "global_plan": ["Объяснить связь примеров", "Обсудить аргумент ученика"],
         "current_step": 0,
-        "messages": [HumanMessage(content="Спасибо!")],
+        "messages": [HumanMessage(content="Не понимаю, как объяснить связь.")],
+    })
+    state = workflow.invoke({
+        **state,
+        "messages": [*state["messages"], HumanMessage(content="Спасибо!")],
+    })
+    assert state["current_step"] == 0
+
+    state = workflow.invoke({
+        **state,
+        "messages": [*state["messages"], HumanMessage(content="Они дополняют друг друга.")],
     })
     assert state["current_step"] == 0
 
     result = workflow.invoke({
         **state,
-        "messages": [*state["messages"], HumanMessage(content="Шаг выполнен.")],
+        "messages": [*state["messages"], HumanMessage(content="Первый пример показывает причину, а второй — последствия этого решения.")],
     })
     assert result["current_step"] == 1
-    assert "Проверить аргументы" in message_content(result["messages"][-1])
+    assert "Какой аргумент поддержит твою позицию?" in message_content(result["messages"][-1])
+
+
+def test_plan_advances_after_rechecking_a_revised_essay(monkeypatch):
+    monkeypatch.setenv("TOOL_SELECTION_MODE", "llm")
+    workflow = build_workflow(FakeLLM([
+        AIMessage(content="Вынеси второй пример в отдельный абзац."),
+        tool_call_message("nlp_structure_tool", {}),
+        AIMessage(content='{"completed": true, "next_question": "Что связывает эти примеры?"}'),
+    ]))
+    old_essay = "Первый пример. Второй пример."
+    state = workflow.invoke({
+        "essay_text": old_essay,
+        "global_plan": ["Разделить примеры по абзацам", "Объяснить связь примеров"],
+        "messages": [HumanMessage(content="Здравствуйте!")],
+    })
+    assert state["current_step"] == 0
+
+    result = workflow.invoke({
+        **state,
+        "essay_text": "Первый пример.\nВторой пример.",
+        "messages": [*state["messages"], HumanMessage(content="Посмотри, я вынес второй пример отдельно.")],
+    })
+    answer = message_content(result["messages"][-1])
+    assert "Количество абзацев: 2" in answer
+    assert "Что связывает эти примеры?" in answer
+    assert result["current_step"] == 1

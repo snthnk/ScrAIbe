@@ -12,9 +12,11 @@ from agent_module.constants import ESSAY_PREFIXES, NLP_TOOL_CACHE_SECTION
 from agent_module.graph.formatting import auto_answer_from_tool, format_full_analysis, format_nlp_errors
 from agent_module.messages import (
     coerce_messages,
+    is_ai_message,
     is_human,
     last_tool_call,
     message_content,
+    safe_json_loads,
     sanitize_message_history,
     state_to_dict,
     tool_calls_from_message,
@@ -23,6 +25,7 @@ from agent_module.messages import (
 from agent_module.prompts import (
     DIRECT_ANSWER_ADDENDUM,
     GLOBAL_PLANNER_SYSTEM_PROMPT,
+    LESSON_PROGRESS_SYSTEM_PROMPT,
     LOCAL_REASONING_SYSTEM_PROMPT,
 )
 from agent_module.routing import select_tool
@@ -32,7 +35,10 @@ from agent_module.utils import setup_logger
 logger = setup_logger()
 
 _EXPLICIT_REQUEST_ROOTS = ("провер", "ошибк", "критер", "разбор", "оцен", "анализ")
-_NEXT_STEP_REQUESTS = {"шаг выполнен", "следующий шаг", "перейдём к следующему шагу", "перейдем к следующему шагу"}
+_ACKNOWLEDGEMENT_WORDS = {
+    "ага", "благодарю", "большое", "да", "здравствуйте", "нет", "ок", "окей",
+    "понял", "поняла", "понятно", "привет", "спасибо", "угу", "хорошо", "ясно",
+}
 
 
 def _append_reasoning(state: Dict[str, Any], entry: str) -> Dict[str, Any]:
@@ -152,6 +158,8 @@ def global_planner(state: Dict[str, Any], llm: Any) -> Dict[str, Any]:
         "nlp_analysis": nlp_analysis,
         "global_plan": plan,
         "current_step": 0,
+        "step_feedback": "",
+        "step_feedback_context": "",
         **_append_reasoning(state, f"Global plan: {plan}"),
     }
 
@@ -177,20 +185,6 @@ def local_reasoning(state: Dict[str, Any], llm: Any) -> Dict[str, Any]:
         logger.info(f"LocalReasoning rendered tool result of '{tool_name}'")
         reasoning = _append_reasoning(state, f"Local step: {step_text}; rendered result of {tool_name}")
         return {"messages": state.get("messages", []) + [AIMessage(content=answer)], **reasoning}
-
-    plan = state.get("global_plan", [])
-    request = message_content(last_message).strip().rstrip(".!?").casefold()
-    if plan and is_human(last_message) and request in _NEXT_STEP_REQUESTS:
-        current_step = state.get("current_step", 0)
-        if current_step < len(plan) - 1:
-            current_step += 1
-            answer = f"Следующий шаг — {plan[current_step]}."
-        else:
-            answer = "Это последний шаг плана. Можем ещё раз проверить сочинение."
-        return {
-            "current_step": current_step,
-            "messages": state.get("messages", []) + [AIMessage(content=answer)],
-        }
 
     system_prompt = f"{LOCAL_REASONING_SYSTEM_PROMPT} Текущий шаг плана: {step_text}."
     decision = select_tool(llm, history, state, step_text, system_prompt)
@@ -311,7 +305,60 @@ def _tool_message_this_turn(messages: List[Any]) -> Any:
     return None
 
 
-def response_generator(state: Dict[str, Any]) -> Dict[str, Any]:
+def _step_progress(state: Dict[str, Any], messages: List[Any], answer: str, llm: Any) -> Dict[str, Any]:
+    plan = state.get("global_plan", [])
+    step = state.get("current_step", 0)
+    if step + 1 >= len(plan):
+        return {}
+
+    feedback = state.get("step_feedback", "")
+    context = state.get("essay_context_fingerprint", "")
+    if not feedback:
+        return {"step_feedback": answer, "step_feedback_context": context}
+
+    student = _last_human_text(messages)
+    if not set(re.findall(r"\w+", student.casefold())) - _ACKNOWLEDGEMENT_WORDS:
+        return {}
+
+    evidence = {
+        "current_step": plan[step],
+        "next_step": plan[step + 1],
+        "task": state.get("task_condition", ""),
+        "source_text": state.get("source_text", ""),
+        "essay": state.get("essay_text", ""),
+        "context_changed_since_feedback": context != state.get("step_feedback_context", ""),
+        "previous_feedback": feedback,
+        "student_reply": student,
+        "latest_feedback": answer,
+    }
+    try:
+        reply = llm.invoke([
+            SystemMessage(content=LESSON_PROGRESS_SYSTEM_PROMPT),
+            HumanMessage(content=json.dumps(evidence, ensure_ascii=False)),
+        ])
+    except Exception as exc:
+        logger.warning("Lesson progress check failed (%s)", type(exc).__name__)
+        return {}
+
+    raw = message_content(reply).strip()
+    fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", raw, flags=re.IGNORECASE | re.DOTALL)
+    result = safe_json_loads(fenced[1] if fenced else raw)
+    if not isinstance(result, dict) or result.get("completed") is not True:
+        return {}
+    question = result.get("next_question")
+    if not isinstance(question, str) or not 0 < len(question.strip()) <= 240:
+        return {}
+    question = question.strip()
+    return {
+        "current_step": step + 1,
+        "step_feedback": question,
+        "step_feedback_context": context,
+        "messages": [*messages[:-1], AIMessage(content=f"{answer}\n\n{question}")],
+        **_append_reasoning(state, f"Lesson step completed: {plan[step]}"),
+    }
+
+
+def response_generator(state: Dict[str, Any], llm: Any) -> Dict[str, Any]:
     logger.info("Node: ResponseGenerator")
     state = state_to_dict(state)
     messages = list(state.get("messages", []))
@@ -325,7 +372,7 @@ def response_generator(state: Dict[str, Any]) -> Dict[str, Any]:
     is_tool = isinstance(last_msg, ToolMessage)
     is_raw_data = content.startswith("[") or content.startswith("{") or content in _EMPTY_MARKERS
     if not (is_tool or not content or is_raw_data):
-        return updates
+        return _step_progress(state, messages, content, llm) if is_ai_message(last_msg) else updates
 
     tool_message = _tool_message_this_turn(messages)
     if tool_message is None:
@@ -340,7 +387,7 @@ def response_generator(state: Dict[str, Any]) -> Dict[str, Any]:
     answer = auto_answer_from_tool(tool_name, tool_args, tool_message.content, state.get("essay_text", ""))
     messages.append(AIMessage(content=answer))
     updates["messages"] = messages
-    return updates
+    return {**updates, **_step_progress(state, messages, answer, llm)}
 
 
 __all__ = [
